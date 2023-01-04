@@ -13,12 +13,15 @@ contract advancedNFT is ERC721 {
     uint256 immutable maxSupply;
 
     // when metadata will eligible to be revealed
-    uint256 immutable maxRevealBlockHeight;
+    uint256 immutable revealBlockHeight;
 
     // How many blocks back to use the hash of
-    // i.e if reveal block height of 5 and we want to use up to 4 previous block hashes
-    // reveal look back = 4: 5,4,3,2,1 (1-5)
-    uint256 immutable revealLookBack;
+    // i.e if reveal block height of 5 and we want to use 4 block hashes
+    // reveal look back = 4: 5,6,7,8
+    uint256 immutable numRevealBlocks;
+
+    // amount of wei per mint
+    uint256 immutable mintPrice;
 
     // reveal block height concatenate n blocks hash
     bytes32 public revealHash;
@@ -27,75 +30,149 @@ contract advancedNFT is ERC721 {
     // i.e tokenId[0] maps to startingIndex
     uint256 startingIndex;
 
-    // amount of tokens that are currently claimable via mint
-    uint256 tokensLeftToMint;
+    // stores user precalculated keccak256(abi.encodePacked(number,salt))
+    mapping(address => bytes32) hashedCommitNumber;
 
-    // event changed nickname
+    // maps user desired tokenID => adresses that want this ID
+    // (What they are all competing for)
+    mapping(uint256 => address[]) contentionMapping;
 
     // allows token owner to attatch a nickname to their nft
     // tokenId => nickName
     mapping(uint256 => string) tokenNickName;
 
+    // event changed nickname
+    // event comitted hash
+    // event revealed hash
+
     constructor(
         uint256 _maxSupply,
         uint256 _maxRevealBlockHeight,
-        uint256 _revealLookBack
+        uint256 _numRevealBlocks,
+        uint256 _mintPrice
     ) ERC721("fairApes", "fApes") {
         // make sure revealBlockHeight occurs at least 48 hours after contract deployment
         // at roughly 15 seconds per block (11520 blocks = 2 days)
-        require(_maxRevealBlockHeight > block.number + 11520);
+        //    require(_maxRevealBlockHeight > block.number + 11520);
 
-        tokensLeftToMint = _maxSupply;
         maxSupply = _maxSupply;
-        maxRevealBlockHeight = _maxRevealBlockHeight;
-        revealLookBack = _revealLookBack;
+        revealBlockHeight = _maxRevealBlockHeight;
+        numRevealBlocks = _numRevealBlocks;
+        mintPrice = _mintPrice;
     }
 
-    function mint() external {
+    // value can't be 0
+    // user precalculate input of keccak256(abi.encodePacked(uint256 number, uint256 salt))
+    // check merkle validity here
+    function commit(bytes32 dataHash) external {
+        // if state = commit phase
+
+        // check merkle validity
+        // only whitelisted users can commit
+
+        // cache mapping locally
+        bytes32 _hashedCommitNumber = hashedCommitNumber[msg.sender];
+
+        // ensure they are not trying to set a guess of 0
+        require(dataHash != 0);
+
+        // ensure they have not already comitted a guess
+        require(_hashedCommitNumber == 0);
+
+        // set their commit
+        hashedCommitNumber[msg.sender] = dataHash;
+    }
+
+    // only meant to be called once so they are locked to a specific tokenId
+    function reveal(
+        uint256 tokenId,
+        uint256 number,
+        uint256 salt
+    ) external {
+        // if state = reveal phase
+
+        bytes32 _hashedCommitNumber = hashedCommitNumber[msg.sender];
+
+        // Ensure they have a valid commit
+        require(_hashedCommitNumber != 0);
+
+        // Ensure hashed commit matches with their reveal commit
+        require(
+            _hashedCommitNumber == keccak256(abi.encodePacked(number, salt))
+        );
+
+        // store their revealed guess
+        contentionMapping[tokenId].push(msg.sender);
+
+        // Set their hashedCommitNumber to 0 (not valid) so that they can't call reveal twice
+        // disallows them from trying to run for additional tokenId's
+        hashedCommitNumber[msg.sender] = 0;
+    }
+
+    function mint(uint256 tokenId) external payable {
+        // if state = minting phase (after revealHash has been calculated)
         require(msg.sender == tx.origin, "Only EOA");
 
-        // check merkle for validity to mint**
+        // only pay during mint
+        require(msg.value == mintPrice);
+
+        // check merkle for validity to mint** don't need to as we do this in reveal phase
+        // only those who won the
 
         // use state machine instead **
         require(revealHash.length != 0, "reveal hash not calculated yet!");
 
-        uint256 tokenId = uint256(
-            keccak256(abi.encodePacked(block.timestamp, revealHash))
-        ) % tokensLeftToMint;
-        tokensLeftToMint -= 1;
+        // anyone can call to settle
+        // as there is no check to see if msg.sender is the one who is settling
+        address[] memory _players = contentionMapping[tokenId];
+
+        uint256 tempClosestNum = 0;
+        for (uint256 i; i < _players.length; ++i) {
+            //contentionMapping[];
+        }
 
         _mint(msg.sender, tokenId);
     }
 
-    function constructRevealHash() external {
+    function constructRevealHash()
+        external
+        returns (bytes32[] memory, bytes32)
+    {
         // make sure reveal hash not already initalizaed
-        require(revealHash != 0, "revealHash already set!");
+        require(revealHash == 0, "revealHash already set!");
 
         // check if ready to reveal
-        uint256 minRevealBlock = maxRevealBlockHeight - revealLookBack;
-        require(block.number > maxRevealBlockHeight, "Unable to reveal yet!");
-
-        // must reveal before the farthest look back blockhash becomes void
-        // valid hash of the given block only available for 256 most recent blocks
-        require(block.number - minRevealBlock > 255, "Max look back expired!");
+        require(
+            block.number > revealBlockHeight + numRevealBlocks,
+            "Unable to reveal yet!"
+        );
 
         // declare array of reveal block hashes
-        bytes32[] memory revealBlockHashes = new bytes32[](revealLookBack + 1);
+        bytes32[] memory revealBlockHashes = new bytes32[](numRevealBlocks);
 
         // populate block hash array
-        for (uint256 i = 0; i < revealLookBack; i++) {
-            revealBlockHashes[i] = blockhash(maxRevealBlockHeight - i);
+        for (uint256 i = 0; i < numRevealBlocks; i++) {
+            bytes32 _currBlockHash = blockhash(revealBlockHeight + i);
+
+            // Ensure block hash checked is valid
+            // must execute before the minimum look back blockhash becomes void
+            // valid hash of the given block only available for 256 most recent blocks
+            require(_currBlockHash != 0, "Error! invalid block hash");
+
+            revealBlockHashes[i] = _currBlockHash;
         }
 
         // set reveal hash
         revealHash = keccak256(abi.encodePacked(revealBlockHashes));
+
+        return (revealBlockHashes, revealHash);
     }
 
     function setNickName(uint256 tokenId, string calldata _newNickName)
         external
     {
         // check nft ownership
-        require(msg.sender == _ownerOf(tokenId));
+        require(msg.sender == ownerOf(tokenId));
 
         // set nickname
         tokenNickName[tokenId] = _newNickName;
@@ -126,10 +203,12 @@ contract advancedNFT is ERC721 {
 
         if (startingIndex > 0) {
             _sequenceId = (tokenId + startingIndex) % maxSupply;
+
             // wrap around to point to unminted id's metadata
             if (_sequenceId > maxSupply - 1) {
                 _sequenceId -= maxSupply;
             }
+
             return string(abi.encodePacked(baseURI, _sequenceId));
         }
 
@@ -142,10 +221,8 @@ contract advancedNFT is ERC721 {
     }
 
     function setBaseURI(string calldata _newBaseURI) external {
-        require(
-            block.number > maxRevealBlockHeight,
-            "Not ready to reveal yet!"
-        );
+        require(block.number > revealBlockHeight, "Not ready to reveal yet!");
+
         require(bytes(baseURI).length == 0, "URI data has already been set!");
 
         baseURI = _newBaseURI;
