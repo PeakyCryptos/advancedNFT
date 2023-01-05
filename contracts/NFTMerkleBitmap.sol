@@ -27,8 +27,7 @@ contract advancedNFT is ERC721, MerkleDrop {
     uint256 public immutable mintPrice;
 
     // reveal block height concatenate n blocks hash
-    bytes32 public revealHash =
-        0x219f584cc9fa57d670a0e1d9eea4cc40c5d0d0cf5465c64f59525c0d0bc25218;
+    bytes32 public revealHash;
 
     // randomized starting index
     // i.e tokenId[0] maps to startingIndex
@@ -89,6 +88,10 @@ contract advancedNFT is ERC721, MerkleDrop {
     ) external {
         // if state = commit phase
 
+        // check merkle validity
+        // only whitelisted users can commit
+        require(_verify(_leaf(msg.sender), proof), "Invalid merkle proof");
+
         // Ensure the requested tokenId is within range
         require(tokenId <= maxSupply, "Invalid tokenId");
 
@@ -116,16 +119,16 @@ contract advancedNFT is ERC721, MerkleDrop {
     }
 
     // view all the players in the running for the tokenId
-    // use length to know how many players are running for that tokenId
     function viewContention(uint256 tokenId)
         external
         view
-        returns (playerData[] memory playersData, uint256 length)
+        returns (playerData[] memory)
     {
-        playersData = contentionMapping[tokenId];
-        length = playersData.length;
+        return contentionMapping[tokenId];
     }
 
+    // Only safe when run from your own node
+    // View functions are not committed on-chain however the node the request is sent over is privy
     function commitHelper(uint8 guess, uint256 salt)
         external
         pure
@@ -134,7 +137,8 @@ contract advancedNFT is ERC721, MerkleDrop {
         return keccak256(abi.encodePacked(guess, salt));
     }
 
-    // ideally the index should be prefilled on the frontend
+    // ideally the index should be prefilled on the frontend based on
+    // contention mapping view return data
     function reveal(
         uint256 tokenId,
         uint256 index,
