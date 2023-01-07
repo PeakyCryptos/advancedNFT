@@ -186,7 +186,7 @@ contract advancedNFT is ERC721, MerkleDrop {
         }
 
         // if startingIndex not set
-        return "";
+        return "Not revealed yet!";
     }
 
     function _baseURI() internal view override returns (string memory) {
