@@ -10,8 +10,12 @@ contract MerkleDrop {
         root = merkleroot;
     }
 
-    function _leaf(address account) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(account));
+    function _leaf(address account, uint256 tokenId)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(account, tokenId));
     }
 
     function _verify(bytes32 leaf, bytes32[] memory proof)

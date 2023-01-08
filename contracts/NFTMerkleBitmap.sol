@@ -9,11 +9,15 @@ contract advancedNFT is ERC721, MerkleDrop {
     using Strings for uint256;
 
     // default null
+    // bayc ipfs as test
     // https://ipfs.io/ipfs/QmeSjSinHpPnmXmspMjwiXyN6zS4E9zccariGR3jxcaWtq/
     // initalize as empty (unrevealed)
     string public baseURI;
 
-    address owner;
+    address public owner;
+
+    // https://medium.com/coinmonks/the-elegance-of-the-nft-provenance-hash-solution-823b39f99473
+    bytes32 public immutable provenanceHash;
 
     // total amount that could ever be minted
     uint256 public immutable maxSupply;
@@ -25,8 +29,7 @@ contract advancedNFT is ERC721, MerkleDrop {
     uint256 public immutable mintPrice;
 
     // reveal block height concatenate n blocks hash
-    bytes32 public revealHash =
-        0x219f584cc9fa57d670a0e1d9eea4cc40c5d0d0cf5465c64f59525c0d0bc25218;
+    bytes32 public revealHash;
 
     // How many blocks back to use the hash of
     // i.e if reveal block height of 5 and we want to use 4 block hashes
@@ -35,7 +38,7 @@ contract advancedNFT is ERC721, MerkleDrop {
 
     // randomized starting index
     // i.e tokenId[0] maps to startingIndex
-    uint256 public startingIndex = 20;
+    uint256 public startingIndex;
 
     // Bitmap
     BitMaps.BitMap private bitmap;
@@ -44,22 +47,16 @@ contract advancedNFT is ERC721, MerkleDrop {
     // tokenId => nickName
     mapping(uint256 => string) public tokenName;
 
-    // event changed nickname
-    // event comitted hash
-    // event revealed hash
-
     constructor(
         bytes32 merkleRoot,
+        bytes32 _provenanceHash,
         uint256 _maxSupply,
         uint256 _revealBlockHeight,
         uint256 _numRevealBlocks,
         uint256 _mintPrice
     ) ERC721("fairApes", "fApes") MerkleDrop(merkleRoot) {
-        // make sure revealBlockHeight occurs at least 48 hours after contract deployment
-        // at roughly 15 seconds per block (11520 blocks = 2 days)
-        //    require(_maxRevealBlockHeight > block.number + 11520);
-
         owner = msg.sender;
+        provenanceHash = _provenanceHash;
         maxSupply = _maxSupply;
         revealBlockHeight = _revealBlockHeight;
         numRevealBlocks = _numRevealBlocks;
@@ -67,6 +64,7 @@ contract advancedNFT is ERC721, MerkleDrop {
 
         // Construct Bitmap and initalize slots in advance
         // user will only accure cost of setting a non-zero value to zero
+        // as we take the cost of initalizing the needed slots
         uint256 storageSlotsToInitalize = (maxSupply / 256) + 1;
         uint256 MAX_INT = 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
         for (uint256 i; i < storageSlotsToInitalize; ++i) {
@@ -79,10 +77,7 @@ contract advancedNFT is ERC721, MerkleDrop {
         _;
     }
 
-    // preferrable winner checks viewMintWinner and then mints for themself
     function mint(uint256 tokenId, bytes32[] calldata proof) external payable {
-        // if state = minting phase (after revealHash has been calculated)
-
         /**
          * @dev Check to ensure contract's can't mint.
          * As well as if they have sufficient whitelist priviliges and match the mint price.
@@ -95,7 +90,7 @@ contract advancedNFT is ERC721, MerkleDrop {
             "Invalid merkle proof!"
         );
 
-        // check to ensure their their ticket in the bitmap has not been used
+        // check to ensure their ticket in the bitmap has not been used
         require(BitMaps.get(bitmap, tokenId), "Already claimed!");
 
         // unset their bit in bitmap (make 0)
@@ -132,24 +127,6 @@ contract advancedNFT is ERC721, MerkleDrop {
 
         // set mint starting index
         startingIndex = uint8(uint256(revealHash));
-    }
-
-    function setNickName(uint256 tokenId, string calldata _newNickname)
-        external
-    {
-        // check nft ownership
-        require(msg.sender == ownerOf(tokenId));
-
-        // set nickname
-        tokenName[tokenId] = _newNickname;
-    }
-
-    function retrieveNickName(uint256 tokenId)
-        external
-        view
-        returns (string memory)
-    {
-        return tokenName[tokenId];
     }
 
     // https://forum.openzeppelin.com/t/are-nft-projects-doing-starting-index-randomization-and-provenance-wrong-or-is-it-just-me/14147
