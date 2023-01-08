@@ -10,10 +10,8 @@ interface ERC721 {
     ) external;
 }
 
-// Wrapper ontop of ERC721 contract which receives a token and sends back special ERC1155 token
+// Wrapper ontop of ERC721 contract which receives a token and sends back an ERC1155
 // all tokenId's receive the same ERC1155 token
-// This is done for extendability purposes, if multiple NFT's contracts were wrapped we would have a different
-// token for each collection
 contract NFTWrapper is ERC1155, ERC721Holder {
     ERC721 public ERC721Contract;
     uint256 public immutable specialTokenId;
@@ -157,9 +155,15 @@ contract NFTWrapper is ERC1155, ERC721Holder {
         _safeBatchTransferFrom(from, to, ids, amounts, data);
 
         // check if they are transferring special token and perform the erc721 logging
+        // This enables them to transfer many id's at once but when transferring special token
+        // They must relinquish ownership of their matched erc721 as well
         for (uint256 i; i < ids.length; ++i) {
             if (ids[i] == specialTokenId) {
+                // transfer ERC721 ownership
                 _transferHelper(from, to, amounts[i], data);
+
+                // burn the ERC1155's that we got back
+                _burn(address(this), ids[i], amounts[i]);
             }
         }
     }
@@ -181,8 +185,6 @@ contract NFTWrapper is ERC1155, ERC721Holder {
         uint256[] memory,
         bytes memory
     ) public virtual returns (bytes4) {
-        //_burnBatch(address(this), ids, amounts);
-
         return this.onERC1155BatchReceived.selector;
     }
 }
