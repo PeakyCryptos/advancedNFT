@@ -12,9 +12,16 @@ contract AdvancedNFT is ERC721, Ownable {
     // library to check string length
     using StringUtils for string;
 
-    // event changed nickname
     // event comitted hash
+    event committedHash(address indexed sender, bytes32 dataHash);
     // event revealed hash
+    event revealedHash(address indexed sender, uint256 guess);
+    // event changed nickname
+    event changedNickname(
+        address indexed sender,
+        string _oldNickname,
+        string _newNickname
+    );
 
     // possible sale states
     enum State {
@@ -134,6 +141,9 @@ contract AdvancedNFT is ERC721, Ownable {
 
         // Update committal status
         playerCommitted[msg.sender] = true;
+
+        // emit event
+        emit committedHash(msg.sender, dataHash);
     }
 
     // view all the players in the running for the tokenId
@@ -145,14 +155,27 @@ contract AdvancedNFT is ERC721, Ownable {
         return contentionMapping[tokenId];
     }
 
-    // view function is run off-chain but is necessary to be aware that data requested
-    // is privy to the provider
-    function commitHelper(uint8 guess, uint256 salt)
+    // Get the index of a player in contention mapping players array
+    function getPlayerContentionIndex(uint256 tokenId, address _requestedPlayer)
         external
-        pure
-        returns (bytes32)
+        view
+        returns (uint256)
     {
-        return keccak256(abi.encodePacked(guess, salt));
+        playerData[] memory players = contentionMapping[tokenId];
+
+        // loop over all players and get their address
+        for (uint256 i; i < players.length; ++i) {
+            playerData memory player = players[i];
+            address currPlayer = player.player;
+
+            // if specified player exists in this contention return their index within it
+            if (_requestedPlayer == currPlayer) {
+                return i;
+            }
+        }
+
+        // else revert
+        revert("Player not in contention for this Id!");
     }
 
     // ideally the index should be prefilled on the frontend
@@ -193,6 +216,9 @@ contract AdvancedNFT is ERC721, Ownable {
         // Set their hashed commit to 0 (not valid) so that they can't call reveal twice
         // disallows them from trying to run for additional tokenId's
         contentionMapping[tokenId][index].dataHash = 0;
+
+        // emit event
+        emit revealedHash(msg.sender, guess);
     }
 
     // prospective winner can view this before minting
@@ -325,8 +351,14 @@ contract AdvancedNFT is ERC721, Ownable {
         // check nft ownership
         require(msg.sender == ownerOf(tokenId));
 
+        // old nickname
+        string memory _oldNickname = tokenName[tokenId];
+
         // set nickname
         tokenName[tokenId] = _newNickname;
+
+        // emit event
+        emit changedNickname(msg.sender, _oldNickname, _newNickname);
     }
 
     function retrieveNickName(uint256 tokenId)
@@ -398,5 +430,18 @@ contract AdvancedNFT is ERC721, Ownable {
     // transfer eth in contract to the owner if sale is concluded
     function retrieveFunds() external isAtState(State.conclusion) onlyOwner {
         payable(msg.sender).transfer(address(this).balance);
+    }
+}
+
+// for test purposes
+contract commitHelper {
+    // view function is run off-chain but is necessary to be aware that data requested
+    // is privy to the provider
+    function constructHash(uint8 guess, uint256 salt)
+        external
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encodePacked(guess, salt));
     }
 }
